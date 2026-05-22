@@ -16,3 +16,5 @@ data/screen/*
 data/enrolled/*
 !data/**/.gitkeep
 
+.claude/
+
