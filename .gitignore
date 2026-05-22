@@ -15,5 +15,4 @@ data/photo/*
 data/screen/*
 data/enrolled/*
 !data/**/.gitkeep
-models/*.task
 
