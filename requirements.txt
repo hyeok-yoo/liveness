@@ -1,0 +1,13 @@
+opencv-python>=4.8.0
+mediapipe>=0.10.15
+numpy>=1.24.0
+scipy>=1.10.0
+scikit-learn>=1.3.0
+scikit-image>=0.21.0
+# Windows: dlib 소스 빌드 회피용 prebuilt wheel
+# (face_recognition은 의존성 그래프상 dlib을 요구하지만 dlib-bin이 같은 API 제공)
+dlib-bin>=20.0.0
+face-recognition-models>=0.3.0
+face_recognition>=1.3.0
+Pillow>=10.0.0
+matplotlib>=3.7.0
