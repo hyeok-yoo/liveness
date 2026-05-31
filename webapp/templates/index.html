@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>얼굴 라이브니스 검사 제어판</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+</head>
+<body>
+  <header class="app-header">
+    <div class="header-inner">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <div>
+          <h1>얼굴 라이브니스 검사 제어판</h1>
+          <p class="subtitle">rPPG · Moiré · 얼굴인식 기반 스푸핑 방지 (브라우저 카메라 + Python 분석)</p>
+        </div>
+      </div>
+      <button id="theme-toggle" class="theme-toggle" type="button" title="테마 전환">🌙</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <!-- 왼쪽: 카메라 미리보기 -->
+    <section class="col col-camera">
+      <div class="card camera-card">
+        <div class="video-wrap">
+          <video id="preview" width="640" height="480" autoplay playsinline muted></video>
+          <div id="overlay" class="overlay hidden"><span id="overlay-text"></span></div>
+          <div id="status-chip" class="status-chip">카메라 준비 중…</div>
+        </div>
+        <div id="cam-error" class="cam-error hidden"></div>
+        <canvas id="capture-canvas" width="640" height="480" class="hidden"></canvas>
+      </div>
+
+      <!-- 인증 결과 배너 -->
+      <div id="result-banner" class="result-banner hidden">
+        <div class="result-head">
+          <span id="result-title"></span>
+        </div>
+        <ul id="result-reasons" class="result-reasons"></ul>
+        <details id="result-details" class="result-details">
+          <summary>상세 수치</summary>
+          <div id="result-details-body" class="details-grid"></div>
+        </details>
+      </div>
+    </section>
+
+    <!-- 오른쪽: 제어 카드들 -->
+    <section class="col col-controls">
+
+      <article class="card">
+        <h2>상태</h2>
+        <div class="status-grid">
+          <div class="status-item">
+            <span class="status-label">파이프라인 로드</span>
+            <span id="st-pipeline" class="badge badge-muted">-</span>
+          </div>
+          <div class="status-item">
+            <span class="status-label">Moiré 모델 학습됨</span>
+            <span id="st-moire" class="badge badge-muted">-</span>
+          </div>
+          <div class="status-item">
+            <span class="status-label">등록자 수</span>
+            <span id="st-enrolled" class="badge badge-muted">-</span>
+          </div>
+        </div>
+      </article>
+
+      <article class="card">
+        <h2>얼굴 등록</h2>
+        <p class="hint">정면을 바라본 뒤 이름을 입력하고 등록하세요.</p>
+        <div class="row">
+          <input id="enroll-name" type="text" placeholder="이름 (예: 홍길동)" />
+          <button id="btn-enroll" class="btn btn-primary" type="button">등록</button>
+        </div>
+        <div id="enroll-msg" class="inline-msg"></div>
+      </article>
+
+      <article class="card">
+        <h2>등록자 목록</h2>
+        <ul id="enrolled-list" class="enrolled-list"><li class="empty">불러오는 중…</li></ul>
+      </article>
+
+      <article class="card">
+        <h2>인증</h2>
+        <p class="hint">3초 준비 후 약 10초 동안 촬영하여 라이브니스 + 얼굴인식을 수행합니다.</p>
+        <label class="checkbox">
+          <input id="demo-mode" type="checkbox" />
+          <span>발표 모드 (rPPG 경고만, 차단하지 않음)</span>
+        </label>
+        <button id="btn-auth" class="btn btn-primary btn-block" type="button">인증 시작</button>
+      </article>
+
+      <article class="card">
+        <h2>얼굴 감지 테스트</h2>
+        <p class="hint">등록 없이 라이브니스만 검사합니다.</p>
+        <button id="btn-liveness" class="btn btn-secondary btn-block" type="button">테스트 시작</button>
+      </article>
+
+      <article class="card">
+        <h2>데이터 수집 (Moiré 학습용)</h2>
+        <p class="hint">
+          <strong>실제 얼굴</strong>=본인 실제 얼굴 ·
+          <strong>사진</strong>=인쇄/폰 사진 ·
+          <strong>화면영상</strong>=모니터·폰 화면 재생
+        </p>
+        <div class="row">
+          <select id="collect-label">
+            <option value="live">실제 얼굴 (live)</option>
+            <option value="photo">사진 (photo)</option>
+            <option value="screen">화면영상 (screen)</option>
+          </select>
+          <button id="btn-collect" class="btn btn-secondary" type="button">샘플 녹화 (약 5초)</button>
+        </div>
+        <div class="sample-counts">
+          <span>live <b id="cnt-live">-</b></span>
+          <span>photo <b id="cnt-photo">-</b></span>
+          <span>screen <b id="cnt-screen">-</b></span>
+        </div>
+        <div id="collect-msg" class="inline-msg"></div>
+      </article>
+
+      <article class="card">
+        <h2>Moiré 모델 학습</h2>
+        <p class="hint">수집한 데이터로 LBP+SVM 모델을 학습합니다. 학습 후 인증이 자동으로 이 모델을 함께 사용합니다.</p>
+        <button id="btn-train" class="btn btn-primary btn-block" type="button">학습 시작</button>
+        <div id="train-msg" class="inline-msg"></div>
+      </article>
+
+    </section>
+  </main>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>
