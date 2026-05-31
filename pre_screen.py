@@ -16,6 +16,8 @@ class PreScreenResult:
     illumination_std: float   # 프레임 평균 밝기의 표준편차
     motion_magnitude: float   # 평균 optical flow magnitude
     reasons: list[str] = field(default_factory=list)
+    # 한글 설명 사유 (UI 표시용). reasons와 1:1 대응.
+    korean_reasons: list[str] = field(default_factory=list)
 
 
 class PreScreener:
@@ -68,13 +70,22 @@ class PreScreener:
         motion_mag = self._calc_motion_magnitude(grays)
 
         reasons: list[str] = []
+        korean: list[str] = []
         if illum_std > self.illumination_std_threshold:
             reasons.append(
                 f"illumination_std={illum_std:.1f} > {self.illumination_std_threshold}"
             )
+            korean.append(
+                f"조명이 너무 급격히 변합니다 — 안정된 조명에서 다시 시도하세요 "
+                f"(수치: 밝기 변화 {illum_std:.0f} > 허용 {self.illumination_std_threshold:.0f})"
+            )
         if motion_mag > self.motion_threshold:
             reasons.append(
                 f"motion_magnitude={motion_mag:.2f} > {self.motion_threshold}"
+            )
+            korean.append(
+                f"화면 움직임이 너무 큽니다 — 카메라를 정면으로 고정하세요 "
+                f"(수치: 움직임 {motion_mag:.0f} > 허용 {self.motion_threshold:.0f}px/프레임)"
             )
 
         return PreScreenResult(
@@ -82,6 +93,7 @@ class PreScreener:
             illumination_std=float(illum_std),
             motion_magnitude=float(motion_mag),
             reasons=reasons,
+            korean_reasons=korean,
         )
 
     # ------------------------------------------------------------------

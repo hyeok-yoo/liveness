@@ -56,8 +56,12 @@ def print_liveness(res: LivenessResult) -> None:
     print("=" * 60)
     print(f"  IS_LIVE = {res.is_live}")
     print(f"  frames: total={res.frames_total}, with_face={res.frames_with_face}")
+    if res.korean_reasons:
+        print("  거부 사유 (한글):")
+        for r in res.korean_reasons:
+            print(f"    · {r}")
     if res.reasons:
-        print("  reasons:")
+        print("  reasons (debug):")
         for r in res.reasons:
             print(f"    - {r}")
     if res.pre_screen is not None:

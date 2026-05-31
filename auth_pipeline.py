@@ -57,12 +57,18 @@ class AuthPipeline:
         liveness_res = self.liveness.analyze_frames(frames_bgr)
 
         if not liveness_res.is_live:
+            # 한글 사유 우선 사용, 없으면 원시 reason 코드로 폴백
+            detail = (
+                " / ".join(liveness_res.korean_reasons[:3])
+                if liveness_res.korean_reasons
+                else ", ".join(liveness_res.reasons[:3])
+            )
             return AuthResult(
                 success=False,
                 stage="spoof_blocked",
                 name=None,
                 liveness=liveness_res,
-                message="스푸핑 감지: " + ", ".join(liveness_res.reasons[:3]),
+                message="인증 거부 — " + detail,
             )
 
         if liveness_res.representative_frame is None:

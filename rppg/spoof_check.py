@@ -28,6 +28,10 @@ from .signal_processing import bandpass, compute_bpm, compute_snr_db
 
 _FACE_ROIS = ("forehead", "left_cheek", "right_cheek")
 
+# SNR sentinel 값 (이전엔 -999.0 / -100.0 매직넘버가 코드 곳곳에 흩어져 있었음)
+_SNR_INVALID = -999.0   # 분석 불가 ROI/배경에 부여하는 sentinel
+_SNR_FLOOR = -100.0     # 이 값보다 크면 "유효한 SNR 측정값"으로 간주
+
 
 @dataclass
 class RPPGAnalysis:
@@ -39,6 +43,8 @@ class RPPGAnalysis:
     fused_snr_db: float
     is_spoof: bool
     reasons: list[str] = field(default_factory=list)
+    # 한글 설명 사유 (UI 표시용). reasons와 1:1 대응.
+    korean_reasons: list[str] = field(default_factory=list)
 
 
 class RPPGSpoofChecker:
@@ -93,7 +99,7 @@ class RPPGSpoofChecker:
             rgb = signals.get(roi)
             if rgb is None or len(rgb) < 2:
                 bpms[roi] = 0.0
-                snrs[roi] = -999.0
+                snrs[roi] = _SNR_INVALID
                 continue
             pulse = self._extract_pulse(rgb)
             pulse_bp = bandpass(pulse, low_hz=0.7, high_hz=2.5, fs=self.fs)
@@ -112,21 +118,20 @@ class RPPGSpoofChecker:
             bg_pulse_bp = bandpass(bg_pulse, low_hz=0.7, high_hz=2.5, fs=self.fs)
             bg_bpm, bg_snr = self._best_window_metrics(bg_pulse_bp)
         else:
-            bg_bpm, bg_snr = 0.0, -999.0
+            bg_bpm, bg_snr = 0.0, _SNR_INVALID
 
         # 4) Best-ROI metrics — 한 ROI라도 충분히 강하면 fallback 통과
-        face_snrs_valid = [snrs[r] for r in _FACE_ROIS if snrs[r] > -100.0]
-        best_roi_snr = max(face_snrs_valid) if face_snrs_valid else -999.0
+        face_snrs_valid = [snrs[r] for r in _FACE_ROIS if snrs[r] > _SNR_FLOOR]
+        best_roi_snr = max(face_snrs_valid) if face_snrs_valid else _SNR_INVALID
+        bg_valid = bg_snr > _SNR_FLOOR  # 배경 SNR을 신뢰할 수 있는가
 
-        # 4) Spoof 판정
+        # 5) Spoof 판정
         reasons: list[str] = []
+        korean: list[str] = []
 
         # 핵심 신호: face fused SNR − background SNR
-        # bg_snr이 -999면 (배경 분석 불가) margin 체크 건너뜀
-        if bg_snr > -100.0:
-            snr_margin = fused_snr - bg_snr
-        else:
-            snr_margin = float("inf")
+        # 배경 분석 불가(bg_snr=sentinel)면 margin 체크 건너뜀(inf)
+        snr_margin = (fused_snr - bg_snr) if bg_valid else float("inf")
 
         # Adaptive margin: 배경이 매우 조용한 환경(bg_snr < -8 dB)에서는
         # 절대 노이즈 자체가 낮으므로 margin 요구치를 살짝 낮춘다 (1.0 dB).
@@ -136,10 +141,7 @@ class RPPGSpoofChecker:
             effective_margin = 1.0
 
         # Best-ROI margin (한 ROI라도 배경 대비 충분히 강한가)
-        if bg_snr > -100.0:
-            best_roi_margin = best_roi_snr - bg_snr
-        else:
-            best_roi_margin = float("inf")
+        best_roi_margin = (best_roi_snr - bg_snr) if bg_valid else float("inf")
 
         # ① 통과 조건 (셋 중 하나라도 만족하면 통과):
         #   (a) fused margin ≥ effective_margin  — 핵심 신호
@@ -158,9 +160,14 @@ class RPPGSpoofChecker:
                 f"best_roi_margin={best_roi_margin:.1f} dB "
                 f"(need ≥{effective_margin:.1f} OR fused≥{self.snr_threshold_db:.1f})"
             )
+            margin_txt = f"{snr_margin:+.1f}dB" if bg_valid else "측정불가"
+            korean.append(
+                f"심박 신호 미감지 — 얼굴 맥박이 배경 노이즈와 구분되지 않음 "
+                f"(수치: 얼굴-배경 SNR {margin_txt} < 기준 +{effective_margin:.1f}dB)"
+            )
 
         # ② BPM 일관성 — 배경 대비 일정 margin 이상 SNR 있는 ROI만 비교
-        margin_threshold = bg_snr + self.snr_margin_db if bg_snr > -100.0 else self.snr_threshold_db
+        margin_threshold = (bg_snr + self.snr_margin_db) if bg_valid else self.snr_threshold_db
         trusted_bpms = [
             bpms[r] for r in _FACE_ROIS
             if snrs[r] >= margin_threshold and bpms[r] > 0
@@ -172,6 +179,10 @@ class RPPGSpoofChecker:
                     f"roi_bpm_disagreement: trusted_bpms="
                     f"{[round(b,1) for b in trusted_bpms]}, "
                     f"spread={spread:.1f} > {self.bpm_agreement} BPM"
+                )
+                korean.append(
+                    f"얼굴 부위별 심박수가 불일치 — 실제 맥박이라면 일치해야 함 "
+                    f"(수치: 편차 {spread:.0f} > 허용 {self.bpm_agreement:.0f}BPM)"
                 )
 
         # ③ 배경 주파수 매칭 (얼굴과 같은 BPM이 배경에도 → 환경 노이즈)
@@ -187,6 +198,10 @@ class RPPGSpoofChecker:
                     f"fused_bpm={fused_bpm:.1f}, "
                     f"diff={abs(bg_bpm - fused_bpm):.1f} < {self.bg_match_bpm} BPM"
                 )
+                korean.append(
+                    f"배경에서도 동일 주파수 검출 — 맥박이 아닌 환경 노이즈로 의심 "
+                    f"(수치: 얼굴 {fused_bpm:.0f} ≈ 배경 {bg_bpm:.0f}BPM)"
+                )
 
         return RPPGAnalysis(
             bpms=bpms,
@@ -197,6 +212,7 @@ class RPPGSpoofChecker:
             fused_snr_db=fused_snr,
             is_spoof=len(reasons) > 0,
             reasons=reasons,
+            korean_reasons=korean,
         )
 
     # ------------------------------------------------------------------
@@ -254,7 +270,7 @@ class RPPGSpoofChecker:
             if p is not None and len(p) > 2
         ]
         if not items:
-            return 0.0, -999.0
+            return 0.0, _SNR_INVALID
 
         T = min(len(p) for _, p in items)
         stacks = []
@@ -267,11 +283,11 @@ class RPPGSpoofChecker:
             stacks.append((seg - seg.mean()) / std)
             # SNR → 가중치: dB를 선형 비율로 변환 후 floor.
             # snr < -10 dB 이하는 거의 무시 (weight ≈ 0.1)
-            w_db = max(snrs.get(name, -999.0), -10.0)
+            w_db = max(snrs.get(name, _SNR_INVALID), -10.0)
             weights.append(10.0 ** (w_db / 10.0))
 
         if not stacks:
-            return 0.0, -999.0
+            return 0.0, _SNR_INVALID
 
         w = np.array(weights, dtype=np.float64)
         w = w / w.sum() if w.sum() > 1e-12 else np.ones_like(w) / len(w)

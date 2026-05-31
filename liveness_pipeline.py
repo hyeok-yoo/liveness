@@ -23,6 +23,8 @@ from rppg.spoof_check import RPPGSpoofChecker, RPPGAnalysis
 class LivenessResult:
     is_live: bool
     reasons: list[str] = field(default_factory=list)
+    # 한글 설명 사유 (UI 표시용). 거부 시 사용자에게 보여줄 자연어 문장.
+    korean_reasons: list[str] = field(default_factory=list)
     pre_screen: Optional[PreScreenResult] = None
     moire_fft: Optional[MoireFFTResult] = None
     moire_lbp: Optional[MoireLBPResult] = None
@@ -111,6 +113,9 @@ class LivenessPipeline:
 
         if len(frames_bgr) < 2:
             result.reasons.append("not_enough_frames")
+            result.korean_reasons.append(
+                f"분석할 영상이 너무 짧습니다 (수치: {len(frames_bgr)}프레임 < 최소 2프레임)"
+            )
             return result
 
         # 1) Pre-screen — 조명 급변/큰 모션
@@ -118,6 +123,7 @@ class LivenessPipeline:
             result.pre_screen = self.pre_screener.analyze(frames_bgr)
             if not result.pre_screen.accepted:
                 result.reasons.extend(f"prescreen:{r}" for r in result.pre_screen.reasons)
+                result.korean_reasons.extend(result.pre_screen.korean_reasons)
                 return result
 
         # 2) 통합 추출: 얼굴 검출 + RGB 시계열 + face crop을 단일 패스로
@@ -141,6 +147,10 @@ class LivenessPipeline:
             result.reasons.append(
                 f"too_few_face_frames: {result.frames_with_face} < {self.min_face_frames}"
             )
+            result.korean_reasons.append(
+                f"얼굴이 충분히 검출되지 않았습니다 — 카메라 정면을 응시하세요 "
+                f"(수치: 검출 {result.frames_with_face} < 필요 {self.min_face_frames}프레임)"
+            )
             return result
 
         # 3) Moiré FFT — 얼굴 crops에서 mid-high 주파수 에너지
@@ -151,16 +161,24 @@ class LivenessPipeline:
                     f"moire_fft: score={result.moire_fft.score:.3f}"
                     f" > {result.moire_fft.threshold}"
                 )
+                result.korean_reasons.append(
+                    f"화면 재촬영(모아레) 패턴 감지 — 사진/모니터를 다시 찍은 영상으로 의심 "
+                    f"(수치: 패턴 강도 {result.moire_fft.score:.3f} ≥ 기준 {result.moire_fft.threshold:.2f})"
+                )
                 # 보안 보수적: 일찍 거부
                 return result
 
-        # 4) Moiré LBP+SVM (선택)
+        # 4) Moiré LBP+SVM (선택) — 학습된 모델이 있을 때만
         if self.moire_lbp is not None and face_crops:
             # 대표 프레임 하나만 사용 (학습 모델 추론 비용 줄이기)
             lbp_res = self.moire_lbp.analyze_image(face_crops[len(face_crops) // 2])
             result.moire_lbp = lbp_res
             if lbp_res.is_spoof:
                 result.reasons.append(f"moire_lbp: score={lbp_res.score:.3f}")
+                result.korean_reasons.append(
+                    f"화면 재촬영(모아레) 패턴 감지 — 학습 모델 판정 "
+                    f"(수치: 스푸핑 확률 {lbp_res.score * 100:.0f}% ≥ 50%)"
+                )
                 return result
 
         # 5) rPPG spoof check — 핵심 false positive 완화 레이어
@@ -173,9 +191,13 @@ class LivenessPipeline:
                 #   사진/영상 위협은 다른 신호로 막힌 상태 → rPPG 약함은 경고만 표시하고 통과.
                 if self.rppg_decisive:
                     result.reasons.extend(f"rppg:{r}" for r in result.rppg.reasons)
+                    result.korean_reasons.extend(result.rppg.korean_reasons)
                     return result
                 else:
                     result.reasons.extend(f"rppg_warn:{r}" for r in result.rppg.reasons)
+                    result.korean_reasons.extend(
+                        f"[경고] {kr}" for kr in result.rppg.korean_reasons
+                    )
 
         # 모든 검사 통과
         result.is_live = True
