@@ -225,12 +225,12 @@ class RPPGSpoofChecker:
     def _best_window_metrics(
         self,
         pulse_bp: np.ndarray,
-        window_sec: float = 6.0,
+        window_sec: float = 4.0,
         stride_sec: float = 2.0,
     ) -> tuple[float, float]:
         """슬라이딩 window별 BPM/SNR 중 best SNR 반환.
 
-        10초 캡처 = 6s 윈도우 × stride 2s → 3개 윈도우 + 전체 1개 = 4개 후보.
+        6초 캡처 = 4s 윈도우 × stride 2s → 2개 윈도우 + 전체 1개 = 3개 후보.
         사용자가 캡처 중 잠시 흔들거나 깜빡여도 양호한 구간만으로 평가.
         """
         N = len(pulse_bp)

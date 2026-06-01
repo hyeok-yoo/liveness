@@ -328,8 +328,8 @@ async function doAuthenticate() {
   $("result-banner").classList.add("hidden");
   try {
     const { frames, fps } = await captureFrames({
-      prepSeconds: 3,
-      captureSeconds: 10,
+      prepSeconds: 0,
+      captureSeconds: 6,
       targetFps: 15,
     });
     setBusy(true, "분석 중…");
@@ -358,8 +358,8 @@ async function doLiveness() {
   $("result-banner").classList.add("hidden");
   try {
     const { frames, fps } = await captureFrames({
-      prepSeconds: 3,
-      captureSeconds: 10,
+      prepSeconds: 0,
+      captureSeconds: 6,
       targetFps: 15,
     });
     setBusy(true, "분석 중…");
